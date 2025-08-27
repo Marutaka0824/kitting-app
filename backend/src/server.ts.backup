@@ -1,0 +1,567 @@
+// backend/src/server.ts
+// ピッキングリスト関連のインポート
+import {
+  generatePickingList,
+  generateExcelFile
+} from './pickingList// backend/src/server.ts
+// ピッキングリスト関連のインポート
+import {
+  generatePickingList,
+  generateExcelFile
+} from './pickingList.js';
+import express from 'express';
+// バックアップ関連のインポート
+import {
+  exportToExcel,
+  backupDatabase,
+  createFullBackup,
+  getBackupList,
+  scheduleAutoBackup
+} from './backup';
+import cors from 'cors';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
+import path from 'path';
+import fs from 'fs';
+
+// 認証関連のインポート
+import { 
+  authenticateToken, 
+  requireAdmin, 
+  registerUser, 
+  loginUser,
+} from './auth';
+
+// データベース関連のインポート
+import {
+  initializeDatabase,
+  getPartsMaster,
+  getInventory,
+  updateInventory,
+  saveCalculationHistory,
+  getCalculationHistory,
+  PartsMaster,
+  Inventory,
+  User  // ← これも追加
+} from './database';
+
+const app = express();
+const PORT = 3001;';
+import express from 'express';
+// バックアップ関連のインポート
+import {
+  exportToExcel,
+  backupDatabase,
+  createFullBackup,
+  getBackupList,
+  scheduleAutoBackup
+} from './backup';
+import cors from 'cors';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
+import path from 'path';
+import fs from 'fs';
+
+// 認証関連のインポート
+import { 
+  authenticateToken, 
+  requireAdmin, 
+  registerUser, 
+  loginUser,
+} from './auth';
+
+// データベース関連のインポート
+import {
+  initializeDatabase,
+  getPartsMaster,
+  getInventory,
+  updateInventory,
+  saveCalculationHistory,
+  getCalculationHistory,
+  PartsMaster,
+  Inventory,
+  User  // ← これも追加
+} from './database';
+
+const app = express();
+const PORT = 3001;
+
+// ミドルウェア設定
+app.use(cors());
+app.use(express.json());
+
+// ファイルアップロード設定
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ storage });
+
+// 型定義
+interface ProductRequest {
+  products: Array<{
+    name: string;
+    quantity: number;
+  }>;
+}
+
+// ===== APIエンドポイント =====
+// ===== 認証関連のエンドポイント =====
+
+// ユーザー登録
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    
+    // バリデーション
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: '必須項目が不足しています' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'パスワードは6文字以上必要です' });
+    }
+    
+    const user = await registerUser(email, password, name);
+    res.json({ message: 'ユーザー登録が完了しました', user });
+  } catch (error: any) {
+    console.error('登録エラー:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ===== バックアップ関連のエンドポイント =====
+
+// バックアップ作成（管理者のみ）
+app.post('/api/backup/create', authenticateToken as any, requireAdmin as any, async (req, res) => {
+  try {
+    const backupPath = await createFullBackup();
+    res.json({ 
+      message: 'バックアップを作成しました',
+      path: backupPath 
+    });
+  } catch (error) {
+    console.error('バックアップ作成エラー:', error);
+    res.status(500).json({ error: 'バックアップの作成に失敗しました' });
+  }
+});
+// ===== ピッキングリスト関連のエンドポイント =====
+
+// ピッキングリスト生成
+app.post('/api/picking/generate', async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    // リクエストデータの検証
+    if (!products || !Array.isArray(products)) {
+      return res.status(400).json({ error: 'products配列が必要です' });
+    }
+    
+    // ピッキングリストを生成
+    const pickingList = generatePickingList(products);
+    
+    res.json({
+      success: true,
+      data: pickingList,
+      count: pickingList.length
+    });
+  } catch (error: any) {
+    console.error('ピッキングリスト生成エラー:', error);
+    res.status(500).json({ error: error.message || 'ピッキングリスト生成に失敗しました' });
+  }
+});
+
+// Excel出力
+app.post('/api/picking/excel', async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    if (!products || !Array.isArray(products)) {
+      return res.status(400).json({ error: 'products配列が必要です' });
+    }
+    
+    // ピッキングリストを生成
+    const pickingList = generatePickingList(products);
+    
+    // Excelファイルを生成
+    const excelBuffer = generateExcelFile(pickingList);
+    
+    // ファイル名を生成（日時付き）
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `PickingList_${timestamp}.xlsx`;
+    
+    // Excelファイルとして送信
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(excelBuffer);
+  } catch (error: any) {
+    console.error('Excel出力エラー:', error);
+    res.status(500).json({ error: error.message || 'Excel出力に失敗しました' });
+  }
+});
+// Excelエクスポート（管理者のみ）
+app.get('/api/backup/excel', authenticateToken as any, requireAdmin as any, async (req, res) => {
+  try {
+    const filePath = await exportToExcel();
+    res.download(filePath);
+  } catch (error) {
+    console.error('Excelエクスポートエラー:', error);
+    res.status(500).json({ error: 'エクスポートに失敗しました' });
+  }
+});
+
+// バックアップリスト取得（管理者のみ）
+app.get('/api/backup/list', authenticateToken as any, requireAdmin as any, async (req, res) => {
+  try {
+    const backups = getBackupList();
+    res.json(backups);
+  } catch (error) {
+    console.error('バックアップリスト取得エラー:', error);
+    res.status(500).json({ error: 'リスト取得に失敗しました' });
+  }
+});
+
+
+// ログイン
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'メールアドレスとパスワードが必要です' });
+    }
+    
+    const result = await loginUser(email, password);
+    res.json(result);
+  } catch (error: any) {
+    console.error('ログインエラー:', error);
+    res.status(401).json({ error: error.message });
+  }
+});
+
+// 現在のユーザー情報取得（認証必要）
+app.get('/api/auth/me', authenticateToken as any, async (req: any, res) => {
+  try {
+    const user = await User.findByPk(req.user.userId, {
+      attributes: ['id', 'email', 'name', 'role', 'lastLogin']
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('ユーザー情報取得エラー:', error);
+    res.status(500).json({ error: 'エラーが発生しました' });
+  }
+});
+
+// ユーザー一覧取得（管理者のみ）
+app.get('/api/auth/users', authenticateToken as any, requireAdmin as any, async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: ['id', 'email', 'name', 'role', 'lastLogin', 'createdAt']
+    });
+    res.json(users);
+  } catch (error) {
+    console.error('ユーザー一覧取得エラー:', error);
+    res.status(500).json({ error: 'エラーが発生しました' });
+  }
+});
+// 1. 部品マスターデータ取得（DB版）
+app.get('/api/parts-master', async (req, res) => {
+  try {
+    const partsMasterData = await getPartsMaster();
+    
+    // 製品ごとにグループ化
+    const grouped: { [key: string]: any[] } = {};
+    partsMasterData.forEach((item: any) => {
+      if (!grouped[item.product]) {
+        grouped[item.product] = [];
+      }
+      grouped[item.product].push({
+        name: item.partName,
+        quantity: item.quantity
+      });
+    });
+    
+    res.json(grouped);
+  } catch (error) {
+    console.error('部品マスター取得エラー:', error);
+    res.status(500).json({ error: 'データ取得に失敗しました' });
+  }
+});
+
+// 2. 在庫データ取得（DB版）
+app.get('/api/inventory', async (req, res) => {
+  try {
+    const inventoryData = await getInventory();
+    
+    const inventoryMap: { [key: string]: number } = {};
+    inventoryData.forEach((item: any) => {
+      inventoryMap[item.partName] = item.stock;
+    });
+    
+    res.json(inventoryMap);
+  } catch (error) {
+    console.error('在庫取得エラー:', error);
+    res.status(500).json({ error: 'データ取得に失敗しました' });
+  }
+});
+
+// 3. 必要部品リスト計算（DB版 + 履歴保存）
+app.post('/api/calculate', async (req, res) => {
+  try {
+    const { products } = req.body as ProductRequest;
+    
+    // 部品マスターデータを取得
+    const partsMasterData = await getPartsMaster();
+    const inventoryData = await getInventory();
+    
+    // 必要部品を計算
+    const partsNeeded: { [key: string]: number } = {};
+    
+    products.forEach(product => {
+      if (product.name && product.quantity > 0) {
+        const relevantParts = partsMasterData.filter((p: any) => p.product === product.name);
+        relevantParts.forEach((part: any) => {
+          if (!partsNeeded[part.partName]) {
+            partsNeeded[part.partName] = 0;
+          }
+          partsNeeded[part.partName] += part.quantity * product.quantity;
+        });
+      }
+    });
+
+    // 在庫との比較
+    const result = Object.entries(partsNeeded).map(([partName, needed]) => {
+      const inventory = inventoryData.find((i: any) => i.partName === partName);
+      const stock = inventory ? inventory.stock : 0;
+      return {
+        partName,
+        needed,
+        stock,
+        shortage: needed - stock
+      };
+    });
+
+    // 計算履歴を保存
+    await saveCalculationHistory(products, result);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('計算エラー:', error);
+    res.status(500).json({ error: '計算に失敗しました' });
+  }
+});
+
+// 4. 在庫更新エンドポイント（新規）
+app.put('/api/inventory/:partName', async (req, res) => {
+  try {
+    const { partName } = req.params;
+    const { stock } = req.body;
+    
+    const updated = await updateInventory(decodeURIComponent(partName), stock);
+    if (updated) {
+      res.json({ message: '在庫を更新しました', data: updated });
+    } else {
+      res.status(404).json({ error: '部品が見つかりません' });
+    }
+  } catch (error) {
+    console.error('在庫更新エラー:', error);
+    res.status(500).json({ error: '更新に失敗しました' });
+  }
+});
+
+// 5. 計算履歴取得エンドポイント（新規）
+app.get('/api/history', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const history = await getCalculationHistory(limit);
+    
+    const formattedHistory = history.map((h: any) => ({
+      id: h.id,
+      requestData: JSON.parse(h.requestData),
+      resultData: JSON.parse(h.resultData),
+      calculatedAt: h.calculatedAt
+    }));
+    
+    res.json(formattedHistory);
+  } catch (error) {
+    console.error('履歴取得エラー:', error);
+    res.status(500).json({ error: '履歴取得に失敗しました' });
+  }
+});
+
+// 6. Excelファイルアップロード（部品マスター）- DB版
+app.post('/api/upload/parts-master', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'ファイルがアップロードされていません' });
+  }
+
+  try {
+    const workbook = XLSX.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    // 既存データを削除
+    await PartsMaster.destroy({ where: {} });
+    
+    // 新しいデータを投入
+    const newData = data.map((row: any) => ({
+      product: row['製品'] || row['Product'],
+      partName: row['部品名'] || row['Part Name'],
+      quantity: parseInt(row['必要数'] || row['Quantity']) || 0
+    }));
+    
+    await PartsMaster.bulkCreate(newData);
+
+    // アップロードされたファイルを削除
+    fs.unlinkSync(req.file.path);
+
+    res.json({ 
+      message: '部品マスターデータを更新しました',
+      count: newData.length 
+    });
+  } catch (error) {
+    console.error('アップロードエラー:', error);
+    res.status(500).json({ error: 'ファイル処理エラー' });
+  }
+});
+
+// 7. Excelファイルアップロード（在庫）- DB版
+app.post('/api/upload/inventory', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'ファイルがアップロードされていません' });
+  }
+
+  try {
+    const workbook = XLSX.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    // 既存データを削除
+    await Inventory.destroy({ where: {} });
+    
+    // 新しいデータを投入
+    const newData = data.map((row: any) => ({
+      partName: row['部品名'] || row['Part Name'],
+      stock: parseInt(row['在庫数'] || row['Stock']) || 0,
+      lastUpdated: new Date()
+    }));
+    
+    await Inventory.bulkCreate(newData);
+
+    // アップロードされたファイルを削除
+    fs.unlinkSync(req.file.path);
+
+    res.json({ 
+      message: '在庫データを更新しました',
+      count: newData.length 
+    });
+  } catch (error) {
+    console.error('アップロードエラー:', error);
+    res.status(500).json({ error: 'ファイル処理エラー' });
+  }
+});
+
+// 8. データベース統計情報（新規）
+app.get('/api/stats', async (req, res) => {
+  try {
+    const partsMasterCount = await PartsMaster.count();
+    const inventoryCount = await Inventory.count();
+    const historyCount = await getCalculationHistory(100);
+    
+    // 在庫が少ない部品TOP5
+    const lowStockItems = await Inventory.findAll({
+      order: [['stock', 'ASC']],
+      limit: 5
+    });
+    
+    res.json({
+      partsMasterCount,
+      inventoryCount,
+      historyCount: historyCount.length,
+      lowStockItems: lowStockItems.map((item: any) => ({
+        partName: item.partName,
+        stock: item.stock
+      }))
+    });
+  } catch (error) {
+    console.error('統計取得エラー:', error);
+    res.status(500).json({ error: '統計取得に失敗しました' });
+  }
+});
+
+// 9. ヘルスチェック
+app.get('/api/health', async (req, res) => {
+  try {
+    const partsMasterCount = await PartsMaster.count();
+    const inventoryCount = await Inventory.count();
+    
+    res.json({ 
+      status: 'OK',
+      database: 'SQLite',
+      partsMasterCount,
+      inventoryCount,
+      message: 'バックエンドサーバーは正常に動作しています'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'ERROR',
+      message: 'データベース接続エラー'
+    });
+  }
+});
+
+// サーバー起動（データベース初期化後）
+const startServer = async () => {
+  try {
+    // データベースを初期化
+    await initializeDatabase();
+    
+    // サーバーを起動
+    app.listen(PORT, () => {
+      console.log(`
+========================================
+バックエンドサーバーが起動しました
+URL: http://localhost:${PORT}
+データベース: SQLite (database.sqlite)
+========================================
+
+利用可能なエンドポイント:
+  GET  /api/health              - ヘルスチェック
+  GET  /api/stats               - 統計情報
+  GET  /api/parts-master        - 部品マスターデータ取得
+  GET  /api/inventory           - 在庫データ取得
+  POST /api/calculate           - 必要部品計算
+  PUT  /api/inventory/:partName - 在庫更新
+  GET  /api/history             - 計算履歴取得
+  POST /api/upload/parts-master - 部品マスターアップロード
+  POST /api/upload/inventory    - 在庫アップロード
+
+データベース: ✅ 接続完了
+  // ここに追加！
+  scheduleAutoBackup();
+`);
+    });
+  } catch (error) {
+    console.error('サーバー起動エラー:', error);
+    process.exit(1);
+  }
+};
+
+// サーバーを起動
+startServer();
