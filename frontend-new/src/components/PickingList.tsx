@@ -1,22 +1,50 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+
+// API URLの定義（トップレベル）
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+// 型定義
+interface Product {
+  id: string;
+  name: string;
+  quantity: number;
+}
+
+interface PickedItem {
+  managementNo?: string;
+  itemCode: string;
+  manufacturer?: string;
+  itemName: string;
+  unit: string;
+  supplier?: string;
+  stockQuantity: string | number;
+  quantities: { [key: string]: number };
+  totalRequired: number;
+  shortageQuantity: number;
+}
+
+interface Result {
+  items: PickedItem[];
+  suppliers: string[];
+}
 
 const PickingList = () => {
-  const [products, setProducts] = useState([
+  const [products, setProducts] = useState<Product[]>([
     { id: '1', name: '', quantity: 0 }
   ]);
-  const [result, setResult] = useState({ items: [], suppliers: [] });
+  const [result, setResult] = useState<Result>({ items: [], suppliers: [] });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
   const productOptions = ['Z4①', 'Z4②', 'Z4③'];
 
-  const handleProductChange = (id, value) => {
+  const handleProductChange = (id: string, value: string) => {
     setProducts(products.map(p => 
       p.id === id ? { ...p, name: value } : p
     ));
   };
 
-  const handleQuantityChange = (id, value) => {
+  const handleQuantityChange = (id: string, value: string) => {
     setProducts(products.map(p => 
       p.id === id ? { ...p, quantity: parseInt(value) || 0 } : p
     ));
@@ -28,7 +56,7 @@ const PickingList = () => {
     }
   };
 
-  const removeProduct = (id) => {
+  const removeProduct = (id: string) => {
     if (products.length > 1) {
       setProducts(products.filter(p => p.id !== id));
     }
@@ -49,22 +77,20 @@ const PickingList = () => {
         setLoading(false);
         return;
       }
-      //49行目付近に追加
-     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-     const response = await fetch(`${API_URL}/api/picking-list`, {
-      method: 'POST',
-      credentials: 'include',  // ← これを追加
-      headers: {
-       'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({ products: validProducts }) // ← 送信するデータ
-});
+      const response = await fetch(`${API_URL}/api/picking-list`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ products: validProducts })
+      });
 
-if (!response.ok) {
-  const errorData = await response.text();
-  throw new Error(errorData || 'サーバーエラー');
-}
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(errorData || 'サーバーエラー');
+      }
       
       const data = await response.json();
       console.log('受信データ全体:', data);
@@ -84,7 +110,7 @@ if (!response.ok) {
       }
     } catch (err) {
       console.error('エラー詳細:', err);
-      setError('エラー: ' + err.message);
+      setError('エラー: ' + (err instanceof Error ? err.message : String(err)));
       setResult({ items: [], suppliers: [] });
     }
     
@@ -96,7 +122,7 @@ if (!response.ok) {
     try {
       // Excel用のデータを整形
       const excelData = result.items.map(item => {
-        const row = {
+        const row: any = {
           '丸高管理No': item.managementNo || '',
           '品目コード': item.itemCode,
           'メーカー名': item.manufacturer,
@@ -119,7 +145,7 @@ if (!response.ok) {
 
       const response = await fetch(`${API_URL}/api/export-excel`, {
         method: 'POST',
-        credentials: 'include',  // 追加
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: excelData })
       });
@@ -265,7 +291,7 @@ if (!response.ok) {
           </button>
 
           {/* 統合されたテーブル */}
-          <table border="1" style={{ borderCollapse: 'collapse', width: '100%', marginTop: '50px' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: '50px', border: '1px solid black' }}>
             <thead>
               <tr style={{ backgroundColor: '#f0f0f0' }}>
                 <th style={{ padding: '8px' }}>丸高管理No</th>

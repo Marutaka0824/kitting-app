@@ -1,5 +1,6 @@
 // frontend-new/src/App.tsx
-import React from 'react';
+// import React from 'react'; ← この行を削除
+import './App.css'
 import PickingList from './components/PickingList';
 
 function App() {
