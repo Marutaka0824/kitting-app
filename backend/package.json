@@ -1,13 +1,13 @@
 {
   "name": "backend",
   "version": "1.0.0",
-   "type": "module",
+  "type": "module",
   "description": "ピッキングリスト自動作成システム バックエンド",
-  "main": "src/server.ts",
+  "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node src/server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
