@@ -49,17 +49,22 @@ const PickingList = () => {
         setLoading(false);
         return;
       }
-      
-      const response = await fetch('http://localhost:3001/api/picking-list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products: validProducts })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(errorData || 'サーバーエラー');
-      }
+      //49行目付近に追加
+     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+     const response = await fetch(`${API_URL}/api/picking-list`, {
+      method: 'POST',
+      credentials: 'include',  // ← これを追加
+      headers: {
+       'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ products: validProducts }) // ← 送信するデータ
+});
+
+if (!response.ok) {
+  const errorData = await response.text();
+  throw new Error(errorData || 'サーバーエラー');
+}
       
       const data = await response.json();
       console.log('受信データ全体:', data);
@@ -112,8 +117,9 @@ const PickingList = () => {
         return row;
       });
 
-      const response = await fetch('http://localhost:3001/api/export-excel', {
+      const response = await fetch(`${API_URL}/api/export-excel`, {
         method: 'POST',
+        credentials: 'include',  // 追加
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: excelData })
       });
