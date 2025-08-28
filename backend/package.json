@@ -1,6 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
+   "type": "module",
   "description": "ピッキングリスト自動作成システム バックエンド",
   "main": "src/server.ts",
   "scripts": {
